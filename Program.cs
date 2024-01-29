@@ -16,6 +16,7 @@ builder.Services.AddCors(c =>
 	//c.AddPolicy("AllowOrigin", options => options.AllowAnyOrigin());
 	c.AddPolicy("AllowOrigin", builder => 
 	{
+		// Have to submit url of trusted urls
 		builder.WithOrigins("http://localhost:4200")
 			   .AllowAnyHeader()
 			   .AllowAnyMethod();

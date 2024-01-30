@@ -1,4 +1,5 @@
 ﻿using AuthWebApp.Infastructure;
+using AuthWebApp.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authorization;
@@ -7,11 +8,22 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
+var allowedUsers = new AllowedUsersList();
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddCors(c =>
+{
+	c.AddPolicy("AllowLocalhostOrigin", builder =>
+	{
+		// Have to submit url of trusted urls
+		builder.WithOrigins("http://localhost:4200")
+			   .AllowAnyHeader()
+			   .AllowAnyMethod();
+	});
+});
 builder.Services.AddAuthorization();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 	.AddJwtBearer(options =>
@@ -34,17 +46,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 			ValidateIssuerSigningKey = true,
 		};
 	});
-builder.Services.AddCors(c =>
-{
-	//c.AddPolicy("AllowOrigin", options => options.AllowAnyOrigin());
-	c.AddPolicy("AllowOrigin", builder => 
-	{
-		// Have to submit url of trusted urls
-		builder.WithOrigins("http://localhost:4200")
-			   .AllowAnyHeader()
-			   .AllowAnyMethod();
-	});
-});
 
 var app = builder.Build();
 
@@ -55,10 +56,15 @@ if (app.Environment.IsDevelopment())
 	app.UseSwaggerUI();
 }
 
-// Do not required for local deployment
+//// UseHttpsRedirection do not required for local deployment
 //app.UseHttpsRedirection();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
-app.UseCors("AllowOrigin");
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseCors("AllowLocalhostOrigin");
 //app.UseCors(options => options.AllowAnyOrigin());
 
 app.MapGet("/api/getToken", (string username, string password) =>
@@ -71,27 +77,43 @@ app.MapGet("/api/getToken", (string username, string password) =>
 		expires: DateTime.UtcNow.Add(TimeSpan.FromMinutes(2)),
 		signingCredentials: new SigningCredentials(AuthOptions.GetSymmetricSecurityKey(), SecurityAlgorithms.HmacSha256));
 	return new JwtSecurityTokenHandler().WriteToken(token);
-	//return token;
 })
 .WithName("GetToken")
 .WithOpenApi();
 
-app.Map("/login/{username}", (string username) =>
-{
-	var claims = new List<Claim> { new Claim(ClaimTypes.Name, username) };
-	// создаем JWT-токен
-	var jwt = new JwtSecurityToken(
+app.MapPost("/api/login",
+	(Person loginData) =>
+	{
+		Person person = allowedUsers.allowedPersons.FirstOrDefault(p => p.Email == loginData.Email && p.Password == loginData.Password);
+		// если пользователь не найден, отправляем статусный код 401
+		if (person is null) 
+			return Results.Unauthorized();
+
+		var claims = new List<Claim> { new Claim(ClaimTypes.Name, person.Email) };
+		// создаем JWT-токен
+		var jwt = new JwtSecurityToken(
 			issuer: AuthOptions.ISSUER,
 			audience: AuthOptions.AUDIENCE,
 			claims: claims,
 			expires: DateTime.UtcNow.Add(TimeSpan.FromMinutes(2)),
 			signingCredentials: new SigningCredentials(AuthOptions.GetSymmetricSecurityKey(), SecurityAlgorithms.HmacSha256));
+		var EncodedToken = new JwtSecurityTokenHandler().WriteToken(jwt);
+		var response = new { access_token = EncodedToken, userName = person.Password };
+		//return new JwtSecurityTokenHandler().WriteToken(jwt);
+		return Results.Json(response);
+	})
+	.WithName("Login")
+	.WithOpenApi(); ;
 
-	return new JwtSecurityTokenHandler().WriteToken(jwt);
-});
 
-app.MapGet("/api/getData", [Authorize] () => new { message = "dfsaf" })
+app.Map("/api/data",
+		[Authorize]
+		() => new { message = "Hello World!" })
+	.WithName("Data");
+
+app.MapGet("/api/getData",
+		[Authorize]
+		() => new { message = "dfsaf" })
 .WithName("GetData");
-
 
 app.Run();
